@@ -1,5 +1,6 @@
 {-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RankNTypes #-}
@@ -14,6 +15,8 @@ module LatticeSymmetries.Operator
   , foldSomeOperator
   , getNonbranchingTerms
   , getHilbertSpaceSectors
+  , heisenbergOnGraph
+  , heisenberg20
   -- , maxNumberOffDiag
   -- , operatorSymmetryGroup
   -- , operatorAbelianRepresentations
@@ -220,7 +223,7 @@ sortOnDim = fmap snd . G.reverse . sortVectorBy (comparing fst) . fmap (\x -> (e
 getHilbertSpaceSectors :: forall t. (HasCallStack, IsBasis t) => Bool -> Expr t -> Vector (Basis t)
 getHilbertSpaceSectors groundStateOnly expr = sortOnDim $ case particleDispatch @t of
   SpinTag -> G.fromList $ do
-    let g0 =
+    let !g0 =
           G.toList $
             (if groundStateOnly then groupRepresentations else abelianRepresentations . abelianSubgroup) $
               exprPermutationGroup (Just n) expr
@@ -232,9 +235,7 @@ getHilbertSpaceSectors groundStateOnly expr = sortOnDim $ case particleDispatch 
         else [Nothing]
     g <-
       -- Only apply symmetries when n > 1 and h /= 0 and h /= n
-      if n > 1 && maybe True (\h' -> h' /= 0 && h' /= n) h
-        then g0
-        else [emptyRepresentation]
+      if n > 1 && maybe True (\h' -> h' /= 0 && h' /= n) h then g0 else [emptyRepresentation]
     pure $ SpinBasis n h i g
   SpinlessFermionTag -> G.fromList $ do
     SpinlessFermionBasis n <$> (if hasU1 then Just <$> [0 .. n] else [Nothing])
@@ -243,6 +244,18 @@ getHilbertSpaceSectors groundStateOnly expr = sortOnDim $ case particleDispatch 
     n = estimateNumberSites expr
     hasU1 = conservesNumberParticles expr
     hasZ2 = isInvariantUponSpinInversion expr
+
+heisenbergOnGraph :: Vector (Int, Int) -> Expr SpinTy
+heisenbergOnGraph edges = G.foldl1' (+) (G.map replace edges)
+  where
+    expr = either error id $ mkExpr SpinTag "S+0 S-1 + S-0 S+1"
+    replace (i, j) = flip mapIndices expr $ \case
+      0 -> i
+      1 -> j
+      _ -> error "should not happen"
+
+heisenberg20 :: Expr SpinTy
+heisenberg20 = heisenbergOnGraph . G.fromList $ [(0, 3), (0, 4), (1, 5), (1, 2), (2, 6), (2, 3), (3, 7), (3, 9), (4, 9), (4, 5), (5, 10), (5, 6), (6, 11), (6, 7), (7, 12), (7, 8), (8, 13), (8, 14), (9, 8), (9, 10), (10, 14), (10, 11), (11, 15), (11, 12), (12, 16), (12, 13), (13, 17), (13, 18), (14, 18), (14, 15), (15, 19), (15, 16), (16, 1), (16, 17), (17, 2), (17, 0), (18, 0), (18, 19), (19, 4), (19, 1)]
 
 -- newCoperator :: (IsBasis t, HasCallStack) => Maybe (Ptr Cbasis) -> Operator t -> IO (Ptr Coperator)
 -- newCoperator maybeBasisPtr x = do

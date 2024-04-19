@@ -96,7 +96,7 @@ allSingletons (Partitioning xs) = all ((== 1) . G.length) xs
 
 distancePartition
   :: forall a
-   . (UM.Unbox a, Ord a, Show a)
+   . (UM.Unbox a, Ord a)
   => Hypergraph a
   -- ^ The hypergraph to partition
   -> a
@@ -120,28 +120,36 @@ distancePartition g v0 =
         !boundary = combined Set.\\ seen
 
 intersectSorted :: (G.Vector v a, Ord a) => v a -> v a -> v a
-intersectSorted a b = runST $ do
-  out <- GM.unsafeNew $ min (G.length a) (G.length b)
-  let go !size !i !j
-        | i < G.length a && j < G.length b =
-            let x = G.unsafeIndex a i
-                y = G.unsafeIndex b j
-             in case compare x y of
-                  EQ -> GM.unsafeWrite out size x >> go (size + 1) (i + 1) (j + 1)
-                  LT -> go size (i + 1) j
-                  GT -> go size i (j + 1)
-        | otherwise = pure size
-  size <- go 0 0 0
-  G.unsafeFreeze (GM.take size out)
+intersectSorted a b
+  | G.null a || G.null b = G.empty
+  | G.head a > G.last b || G.last a < G.head b = G.empty
+  | otherwise = runST $ do
+      out <- GM.unsafeNew $ min (G.length a) (G.length b)
+      let go !size !i !j
+            | i < G.length a && j < G.length b =
+                let x = G.unsafeIndex a i
+                    y = G.unsafeIndex b j
+                 in case compare x y of
+                      EQ -> GM.unsafeWrite out size x >> go (size + 1) (i + 1) (j + 1)
+                      LT -> go size (i + 1) j
+                      GT -> go size i (j + 1)
+            | otherwise = pure size
+      size <- go 0 0 0
+      G.unsafeFreeze (GM.take size out)
 {-# SCC intersectSorted #-}
+
+-- intersectPartitionings :: (UM.Unbox a, Ord a, Show a) => Partitioning a -> Partitioning a -> Partitioning a
+-- intersectPartitionings (Partitioning p1) (Partitioning p2) =
+--   Partitioning
+--     . NonEmpty.fromList
+--     . (\x -> traceShow x x)
+--     $ intersectSorted
+--       <$> NonEmpty.toList p1
+--       <*> NonEmpty.toList p2
 
 intersectAllToAll :: (UM.Unbox a, Ord a) => Partitioning a -> Partitioning a -> Partitioning a
 intersectAllToAll (Partitioning p1) (Partitioning p2) =
-  Partitioning
-    . NonEmpty.fromList
-    $ intersectSorted
-      <$> NonEmpty.toList p1
-      <*> NonEmpty.toList p2
+  Partitioning . NonEmpty.fromList $ intersectSorted <$> NonEmpty.toList p1 <*> NonEmpty.toList p2
 
 createMappings :: U.Unbox a => Partitioning a -> Partitioning a -> [Mapping a]
 createMappings (Partitioning (NonEmpty.toList -> src)) (Partitioning (NonEmpty.toList -> tgt)) =
@@ -169,8 +177,11 @@ normalizeWhenCompatible :: (UM.Unbox a, Ord a) => Partitioning a -> Partitioning
 normalizeWhenCompatible (Partitioning (NonEmpty.toList -> src)) (Partitioning (NonEmpty.toList -> tgt))
   | fmap G.length src == fmap G.length tgt =
       let normalize = Partitioning . NonEmpty.fromList . filter (not . G.null)
-       in -- (src', tgt') = unzip $ Data.List.sort $ zip (filter (not . null) src) (filter (not . null) tgt)
-          Just (normalize src, normalize tgt)
+          -- NOTE: we sort the partitionings to ensure that we generate
+          -- branches in the tree in the "natural order". This is needed for
+          -- the transversalGeneratingSet to work correctly.
+          (src', tgt') = unzip $ Data.List.sort $ zip (filter (not . G.null) src) (filter (not . G.null) tgt)
+       in Just (normalize src', normalize tgt')
   | otherwise = Nothing
 {-# SCC normalizeWhenCompatible #-}
 
@@ -210,11 +221,7 @@ transversalGeneratingSet = B.fromList . go
 
 groupFromTransversalGeneratingSet :: B.Vector Permutation -> PermutationGroup
 groupFromTransversalGeneratingSet tgs =
-  mkPermutationGroup
-    . sortVectorBy compare
-    . B.fromList
-    $ Data.List.foldr1 (flip (<>))
-      <$> sequence transversals
+  mkPermutationGroup . sortVectorBy compare . B.fromList $ Data.List.foldl1' (flip (<>)) <$> sequence transversals
   where
     k = (G.head tgs).length
     transversals =

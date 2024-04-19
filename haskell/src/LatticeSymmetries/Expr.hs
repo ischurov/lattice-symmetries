@@ -244,9 +244,9 @@ exprToHypergraph e@(Expr (Sum terms)) = Hypergraph vertices (Set.fromList . fmap
     n = estimateNumberSites e
     vertices :: Set (IndexType t)
     vertices = case particleDispatch @t of
-      SpinTag -> Set.fromAscList [0 .. n]
-      SpinlessFermionTag -> Set.fromAscList [0 .. n]
-      SpinfulFermionTag -> Set.fromList [(s, i) | i <- [0 .. n], s <- [SpinUp, SpinDown]]
+      SpinTag -> Set.fromAscList [0 .. n - 1]
+      SpinlessFermionTag -> Set.fromAscList [0 .. n - 1]
+      SpinfulFermionTag -> Set.fromList [(s, i) | i <- [0 .. n - 1], s <- [SpinUp, SpinDown]]
     hyperedges = G.toList $ fmap scaledToSet terms
     scaledToSet (Scaled _ p) = productToSet p
     productToSet (Product v) = G.toList $ (\(Generator i _) -> i) <$> v

@@ -91,9 +91,9 @@ indexDenseMatrix m@(DenseMatrix nRows nCols _) (i, j)
 
 generateDenseMatrix :: G.Vector v a => Int -> Int -> (Int -> Int -> a) -> DenseMatrix v a
 generateDenseMatrix nRows nCols f =
-  DenseMatrix nRows nCols
-    $ G.generate (nRows * nCols)
-    $ \k -> let (!i, !j) = k `divMod` nCols in f i j
+  DenseMatrix nRows nCols $
+    G.generate (nRows * nCols) $
+      \k -> let (!i, !j) = k `divMod` nCols in f i j
 
 -- extractDiagonal :: (HasCallStack, G.Vector v a, G.Vector v Int) => DenseMatrix v a -> v a
 -- extractDiagonal m@(DenseMatrix nRows nCols _)

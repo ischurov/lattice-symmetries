@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
 module LatticeSymmetries.Group
@@ -15,6 +16,13 @@ module LatticeSymmetries.Group
   , nullRepresentation
   , isRepresentativeSlow
   , stateInfoSlow
+
+  , abelianization
+  , abelianGroupRepresentations
+  , getGroupElements
+  , groupGenerators
+  , GroupElement (..)
+  , groupElementOrder
   )
 where
 
@@ -411,11 +419,11 @@ combineFactors :: [Int] -> [(Int, Int)]
 combineFactors xs = (\l -> (head l, length l)) <$> Data.List.NonEmpty.group xs
 
 groupElementOrder :: GroupElement -> Int
-groupElementOrder x0 = go (x0 <> x0)
+groupElementOrder x0 = go 1 (x0 <> x0)
   where
-    go !x
-      | x.index == x0.index = 1
-      | otherwise = 1 + go (x <> x0)
+    go !acc !x
+      | x.index == x0.index = acc
+      | otherwise = go (acc + 1) (x <> x0)
 
 groupElementCycle :: GroupElement -> [GroupElement]
 groupElementCycle x0 = x0 : go (x0 <> x0)
@@ -467,10 +475,7 @@ groupGenerators group0 = go factors0 [] (selectPrimeElements group0) []
 
 abelianGroupRepresentationsFromGenerators :: B.Vector GroupElement -> [Representation GroupElement]
 abelianGroupRepresentationsFromGenerators generators =
-  fmap (either error id . fromGenerators)
-    $ mapM (uncurry phases)
-      . G.toList
-    $ G.zip generators orders
+    fmap (either error id . fromGenerators) . mapM (uncurry phases) . G.toList $ G.zip generators orders
   where
     orders = G.map groupElementOrder generators
     phases :: GroupElement -> Int -> [RepElement GroupElement]
@@ -479,7 +484,7 @@ abelianGroupRepresentationsFromGenerators generators =
 abelianGroupRepresentations :: MultiplicationTable -> [Representation GroupElement]
 abelianGroupRepresentations t = abelianGroupRepresentationsFromGenerators generators
   where
-    generators = G.fromList . groupGenerators . getGroupElements $ t
+    !generators = G.fromList . groupGenerators . getGroupElements $ t
 
 newtype Coset = Coset {unCoset :: IntSet.IntSet}
   deriving stock (Eq, Ord, Show)

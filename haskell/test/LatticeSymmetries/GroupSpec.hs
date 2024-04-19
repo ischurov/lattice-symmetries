@@ -4,6 +4,7 @@
 
 module LatticeSymmetries.GroupSpec (spec) where
 
+import Data.Aeson qualified as Aeson
 import Data.Complex
 import Data.Ratio
 import Data.Vector (Vector)
@@ -11,11 +12,11 @@ import Data.Vector.Generic qualified as G
 import LatticeSymmetries.Expr (Expr, exprPermutationGroup, mapIndices, mkExpr)
 import LatticeSymmetries.Generator
 import LatticeSymmetries.Group
+import LatticeSymmetries.Operator (getHilbertSpaceSectors)
 import LatticeSymmetries.Permutation
 import Test.Hspec
 import Test.Hspec.QuickCheck
 import Utils
-import qualified Data.Aeson as Aeson
 
 -- syms :: [Either Text Symmetry] -> IO Symmetries
 -- syms xs = fmap (compileGroupRepresentation . unRepresentation) . (extractRight . groupRepresentationFromGenerators) =<< sequence (extractRight <$> xs)
@@ -89,39 +90,52 @@ spec = do
       True `shouldBe` True
     prop "round trips" $ shouldRoundTrip @(RepElement Permutation)
 
--- Empty permutations are not supported
--- Aeson.decode "{\"permutation\": [], \"sector\": 0}" `shouldBe` Just (mkSymmetry [] 0)
--- describe "FromJSON Symmetries" $ do
---   it "parses Symmetries" $ do
---     expected1 <- syms [mkSymmetry [1, 2, 0] 1]
---     Aeson.decode "[{\"permutation\": [1, 2, 0], \"sector\": 1}]" `shouldBe` Just expected1
---     expected2 <- syms [mkSymmetry [1, 2, 3, 0] 0, mkSymmetry [3, 2, 1, 0] 0]
---     Aeson.decode
---       "[{\"permutation\": [1, 2, 3, 0], \"sector\": 0}, {\"permutation\": [3, 2, 1, 0], \"sector\": 0}]"
---       `shouldBe` Just expected2
--- describe "mkSymmetries" $ do
---   it "builds cycles" $ do
---     g <- syms [mkSymmetry [1, 2, 3, 0, 5, 6, 7, 4, 9, 10, 11, 8, 13, 14, 15, 12] 1]
---     g.symmCharactersReal `shouldBe` [1, 0, -1, 0]
---     g.symmCharactersImag `shouldBe` [0, -1, 0, 1]
+  -- Empty permutations are not supported
+  -- Aeson.decode "{\"permutation\": [], \"sector\": 0}" `shouldBe` Just (mkSymmetry [] 0)
+  -- describe "FromJSON Symmetries" $ do
+  --   it "parses Symmetries" $ do
+  --     expected1 <- syms [mkSymmetry [1, 2, 0] 1]
+  --     Aeson.decode "[{\"permutation\": [1, 2, 0], \"sector\": 1}]" `shouldBe` Just expected1
+  --     expected2 <- syms [mkSymmetry [1, 2, 3, 0] 0, mkSymmetry [3, 2, 1, 0] 0]
+  --     Aeson.decode
+  --       "[{\"permutation\": [1, 2, 3, 0], \"sector\": 0}, {\"permutation\": [3, 2, 1, 0], \"sector\": 0}]"
+  --       `shouldBe` Just expected2
+  -- describe "mkSymmetries" $ do
+  --   it "builds cycles" $ do
+  --     g <- syms [mkSymmetry [1, 2, 3, 0, 5, 6, 7, 4, 9, 10, 11, 8, 13, 14, 15, 12] 1]
+  --     g.symmCharactersReal `shouldBe` [1, 0, -1, 0]
+  --     g.symmCharactersImag `shouldBe` [0, -1, 0, 1]
 
--- describe "groupRepresentations" $ do
---   prop "non-periodic chains" $ \size ->
---     when (size >= 2) $ do
---       let e = heisenbergOnChain False size
---       groupRepresentations (exprPermutationGroup Nothing e) `shouldBe` linearChainRepresentations False size
---   prop "periodic chains" $ \size ->
---     when (size > 2) $ do
---       let e = heisenbergOnChain True size
---       groupRepresentations (exprPermutationGroup Nothing e) `shouldBe` linearChainRepresentations True size
+  describe "groupRepresentations" $ do
+    prop "non-periodic chains" $ \size ->
+      when (size >= 2) $ do
+        let e = heisenbergOnChain False size
+        groupRepresentations (exprPermutationGroup Nothing e) `shouldBe` linearChainRepresentations False size
+    prop "periodic chains" $ \size ->
+      when (size > 2) $ do
+        let e = heisenbergOnChain True size
+        groupRepresentations (exprPermutationGroup Nothing e) `shouldBe` linearChainRepresentations True size
 
---   it "3-site non-periodic chain" $ do
---     e <- extractRight $ mkExpr SpinTag "S+0 S-1 + S+1 S-0 + S+1 S-2 + S+2 S-1"
---     groupRepresentations (exprPermutationGroup Nothing e)
---       `shouldBe` [ Representation [RepElement [0, 1, 2] 0, RepElement [2, 1, 0] 0]
---                  , Representation [RepElement [0, 1, 2] 0, RepElement [2, 1, 0] (1 % 2)]
---                  ]
---   it "3-site periodic chain" $ do
---     e <- extractRight $ mkExpr SpinTag "S+0 S-1 + S+1 S-0 + S+1 S-2 + S+2 S-1 + S+2 S-0 + S-2 S+0"
---     groupRepresentations (exprPermutationGroup Nothing e)
---       `shouldBe` linearChainRepresentations True 3
+    it "3-site non-periodic chain" $ do
+      e <- extractRight $ mkExpr SpinTag "S+0 S-1 + S+1 S-0 + S+1 S-2 + S+2 S-1"
+      groupRepresentations (exprPermutationGroup Nothing e)
+        `shouldBe` [ Representation [RepElement [0, 1, 2] 0, RepElement [2, 1, 0] 0]
+                   , Representation [RepElement [0, 1, 2] 0, RepElement [2, 1, 0] (1 % 2)]
+                   ]
+    it "3-site periodic chain" $ do
+      e <- extractRight $ mkExpr SpinTag "S+0 S-1 + S+1 S-0 + S+1 S-2 + S+2 S-1 + S+2 S-0 + S-2 S+0"
+      groupRepresentations (exprPermutationGroup Nothing e)
+        `shouldBe` linearChainRepresentations True 3
+
+    it "20-site square lattice" $ do
+      let e = heisenbergOnGraph [(0, 3), (0, 4), (1, 5), (1, 2), (2, 6), (2, 3), (3, 7), (3, 9), (4, 9), (4, 5), (5, 10), (5, 6), (6, 11), (6, 7), (7, 12), (7, 8), (8, 13), (8, 14), (9, 8), (9, 10), (10, 14), (10, 11), (11, 15), (11, 12), (12, 16), (12, 13), (13, 17), (13, 18), (14, 18), (14, 15), (15, 19), (15, 16), (16, 1), (16, 17), (17, 2), (17, 0), (18, 0), (18, 19), (19, 4), (19, 1)]
+      let g = exprPermutationGroup Nothing e
+      g.size `shouldBe` 80
+      let h = abelianSubgroup g
+      h.unAbelianPermutationGroup.size `shouldBe` 20
+
+-- print (abelianRepresentations h)
+-- print g.size
+-- print (groupRepresentations g)
+-- print (unAbelianPermutationGroup h).size
+-- print $ G.length (getHilbertSpaceSectors True e)

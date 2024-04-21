@@ -126,17 +126,7 @@ def test_basis_construction():
     with raises(ValueError, match=r".*invalid Hamming weight.*"):
         ls.SpinBasis(number_spins=2, hamming_weight=3)
 
-    a = ls.Expr("2 I + S+3")
-    # for b in a.hilbert_space_sectors():
-    #     print(b.symmetries)
-    #     print(b.permutation_group)
-    #     print(b.hamming_weight, b.spin_inversion)
-    # assert len(list(a.symmetric_basis())) == 1
-    # b = ls.Expr("2 (σ⁺₀ σ⁻₁ + σ⁺₁ σ⁻₀) + σᶻ₀ σᶻ₁")
-    # assert len(list(b.symmetric_basis())) == 4
-    # assert len(list(b.symmetric_basis(particle_conservation=False, spin_inversion=1))) == 1
-    # assert len(list(b.symmetric_basis(particle_conservation=2, spin_inversion=False))) == 1
-    # assert len(list(b.symmetric_basis(particle_conservation=False, spin_inversion=False))) == 1
+    _ = ls.Expr("2 I + S+3")
 
 
 def test_csr_matvec():
@@ -402,6 +392,7 @@ def test_symmetries_kagome():
         basis.build()
         expression = ls.Expr(expression_str, particle="spin-1/2")
         hamiltonian = ls.Operator(expression, basis)
+        hamiltonian.build_matrix()
         energies, _ = scipy.sparse.linalg.eigsh(hamiltonian, k=1, which="SA")
         return energies[0]
 

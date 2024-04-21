@@ -9,6 +9,8 @@ module LatticeSymmetries.NonbranchingTerm
   , nbtIsDiagonal
   , getMaxNumberOffDiag
   , unsafeEstimateMaxNumberOffDiag
+  , actOnKet
+  , actOnBra
   )
 where
 
@@ -48,6 +50,26 @@ andWithComplement a b = a .&. (b `xor` fakeOnes)
     fakeOnes = go (BitString 0xFFFFFFFFFFFFFFFF) 64
     go !n !i = if n >= a then n else go ((n `shiftL` i) .|. n) (2 * i)
 
+actOnKet :: NonbranchingTerm -> BitString -> (ComplexRational, BitString)
+actOnKet t alpha
+  | coeff == 0 = (0, alpha)
+  | otherwise = (coeff, beta)
+  where
+    delta = fromIntegral . fromEnum $ (alpha .&. t.nbtM) == t.nbtR
+    sign = if even (popCount (alpha .&. t.nbtS)) then 1 else -1
+    coeff = t.nbtV * delta * sign
+    beta = alpha `xor` t.nbtX
+
+actOnBra :: BitString -> NonbranchingTerm -> (ComplexRational, BitString)
+actOnBra alpha t
+  | coeff == 0 = (0, alpha)
+  | otherwise = (coeff, beta)
+  where
+    delta = fromIntegral . fromEnum $ (alpha .&. t.nbtM) == t.nbtL
+    sign = if even (popCount (alpha .&. t.nbtS)) then 1 else -1
+    coeff = t.nbtV * delta * sign
+    beta = alpha `xor` t.nbtX
+
 -- | Composition of operators.
 instance Semigroup NonbranchingTerm where
   (<>) (NonbranchingTerm vₐ mₐ lₐ rₐ _ sₐ) (NonbranchingTerm vᵦ mᵦ lᵦ rᵦ xᵦ sᵦ) = NonbranchingTerm v m l r x s
@@ -63,8 +85,7 @@ instance Semigroup NonbranchingTerm where
       l = lₐ .|. andWithComplement lᵦ mₐ
       x = l `xor` r
       s = andWithComplement (sₐ `xor` sᵦ) m
-      z = (r .&. sᵦ) `xor` xᵦ
-      p = popCount $ (r .&. sᵦ) `xor` (z .&. sₐ)
+      p = popCount $ (r .&. sᵦ) `xor` ((r `xor` xᵦ) .&. sₐ)
 
 -- | Specifies that an operator is non-branching and can be cast into 'NonbranchingTerm'.
 --

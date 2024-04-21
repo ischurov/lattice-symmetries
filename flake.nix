@@ -34,13 +34,14 @@
       version = "2.2.0";
 
       kernels-overlay = import ./kernels/overlay.nix { inherit version; };
-      haskell-overlay = import ./haskell/overlay.nix {
+      haskell-overlay = withRelocated: import ./haskell/overlay.nix {
         inherit lib doInstallForeignLibs doEnableRelocatedStaticLibs;
+        inherit withRelocated;
       };
       chapel-overlay = import ./chapel/overlay.nix { inherit version; enableDebugging = false; };
       python-overlay = import ./python/overlay.nix { inherit version; };
 
-      composed-overlay = lib.composeManyExtensions [
+      composed-overlay = withRelocated: lib.composeManyExtensions [
         (final: prev: {
           halide = prev.halide.overrideAttrs
             (attrs: {
@@ -73,16 +74,13 @@
         nix-chapel.overlays.default
         halide-haskell.overlays.default
         kernels-overlay
-        haskell-overlay
+        (haskell-overlay withRelocated)
         chapel-overlay
         python-overlay
       ];
 
-      pkgs-for = system: import nixpkgs {
-        inherit system;
-        overlays = [ composed-overlay ];
-      };
-
+      pkgs-for = system: import nixpkgs { inherit system; overlays = [ (composed-overlay true) ]; };
+      pkgs-for-haskell-dev = system: import nixpkgs { inherit system; overlays = [ (composed-overlay false) ]; };
     in
     {
       overlays.default = composed-overlay;
@@ -121,7 +119,7 @@
               # export CMAKE_INCLUDE_PATH=${libffcall.dev}/include:$CMAKE_INCLUDE_PATH
             '';
           };
-          haskell = with pkgs; haskellPackages.shellFor {
+          haskell = with pkgs-for-haskell-dev system; haskellPackages.shellFor {
             packages = ps: [ ps.lattice-symmetries-haskell ];
             withHoogle = true;
             nativeBuildInputs = with haskellPackages; [

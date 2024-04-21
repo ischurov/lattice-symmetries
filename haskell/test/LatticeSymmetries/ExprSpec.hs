@@ -20,6 +20,9 @@ import Test.Hspec.QuickCheck
 import Utils
 import Prelude hiding (Product, Sum)
 
+import Data.Text.IO qualified
+import Data.Text.IO qualified as Text.IO
+
 decodeCexprResult :: IO CString -> IO SomeExpr
 decodeCexprResult action =
   bracket action ls_hs_destroy_string $ \cStr ->
@@ -34,9 +37,20 @@ spec = do
           cExpr <- extractRight =<< extractRight =<< decodeCString @(Either Text _) cExprStr
           bracket (ls_hs_expr_to_json cExpr) ls_hs_destroy_string $ \cStr -> do
             Just e <- Aeson.decodeStrict <$> packCString cStr
-            -- when (mapSomeExpr simplifyExpr someExpr /= e) $ do
-            --   Text.IO.putStrLn $ toPrettyText (mapSomeExpr simplifyExpr someExpr) <> " | " <> toPrettyText e
+            when (mapSomeExpr simplifyExpr someExpr /= e) $ do
+              Text.IO.putStrLn $ toPrettyText (mapSomeExpr simplifyExpr someExpr) <> " | " <> toPrettyText e
             e `shouldBe` mapSomeExpr simplifyExpr someExpr
+  -- it "simplifies expressions upon construction" $ do
+  --   let s = "(0.25 σ⁺_0 (I - σᶻ_1) (I - σᶻ_0) + 0.3535533905932738 σ⁺_1 σ⁻_0 (I - σᶻ_1) (I + σᶻ_0) + 0.4330127018922193 σ⁺_0 (I + σᶻ_1) (I - σᶻ_0))"
+  --       jsonString = "{\"expression\":\"" <> s <> "\"}"
+  --   e <- extractRight $ mkExpr SpinTag s
+  --   Data.Text.IO.putStrLn jsonString
+  --   useAsCString (encodeUtf8 jsonString) $ \exprEncoded ->
+  --     bracket (ls_hs_expr_from_json exprEncoded) ls_hs_destroy_string $ \cExprStr -> do
+  --       cExpr <- extractRight =<< extractRight =<< decodeCString @(Either Text _) cExprStr
+  --       print @SomeExpr cExpr
+  --   toPrettyText e `shouldBe` ""
+
   describe "ls_hs_expr_to_string" $ do
     prop "pretty prints" $ \(someExpr :: SomeExpr) ->
       bracket (newCexpr someExpr) ls_hs_destroy_expr $ \cExpr ->
@@ -99,6 +113,20 @@ spec = do
         `shouldBe` Right True
   describe "conservesNumberParticles" $ do
     it "works for SpinTy" $ do
+      toPrettyText <$> mkExpr SpinTag "σ⁺₀ σ⁻₀" `shouldBe` Right "0.5 I + 0.5 σᶻ₀"
+      toPrettyText <$> mkExpr SpinTag "σ⁻₀ σ⁺₀" `shouldBe` Right "0.5 I - 0.5 σᶻ₀"
+      toPrettyText <$> mkExpr SpinTag "σᶻ₀ σ⁻₀ σ⁺₁" `shouldBe` Right "-σ⁻₀ σ⁺₁"
+      toPrettyText <$> mkExpr SpinTag "σᶻ₁ σ⁺₁" `shouldBe` Right "σ⁺₁"
+      toPrettyText <$> mkExpr SpinTag "σ⁺₁ σᶻ₁" `shouldBe` Right "-σ⁺₁"
+      toPrettyText <$> mkExpr SpinTag "σᶻ₁ σ⁻₀ σ⁺₁" `shouldBe` Right "σ⁻₀ σ⁺₁"
+      toPrettyText <$> mkExpr SpinTag "σᶻ₀ σ⁺₀ σ⁻₁" `shouldBe` Right "σ⁺₀ σ⁻₁"
+      toPrettyText <$> mkExpr SpinTag "σᶻ₁ σ⁺₀ σ⁻₁" `shouldBe` Right "-σ⁺₀ σ⁻₁"
+      -- e <- extractRight $ mkExpr SpinTag "2 (σ⁺₀ σ⁻₁ + σ⁺₁ σ⁻₀) + σᶻ₀ σᶻ₁"
+      -- m <- extractRight $ mkExpr SpinTag "σᶻ₀ + σᶻ₁"
+      -- Text.IO.putStrLn $ toPrettyText e
+      -- Text.IO.putStrLn $ toPrettyText m
+      -- Text.IO.putStrLn $ toPrettyText (e * m)
+      -- Text.IO.putStrLn $ toPrettyText (m * e)
       conservesNumberParticles <$> mkExpr SpinTag "2 (σ⁺₀ σ⁻₁ + σ⁺₁ σ⁻₀) + σᶻ₀ σᶻ₁"
         `shouldBe` Right True
       conservesNumberParticles <$> mkExpr SpinTag "σᶻ₀ σᶻ₁"
@@ -107,3 +135,10 @@ spec = do
         `shouldBe` Right True
       conservesNumberParticles <$> mkExpr SpinTag "σ⁺₀ σ⁺₁ + σ⁻₁ σ⁻₀"
         `shouldBe` Right False
+  describe "simplifyExpr" $ do
+    it "works for big expressions" $ do
+      let e1 = "(0.25 σ⁺_0 (I - σᶻ_1) (I - σᶻ_0) + 0.3535533905932738 σ⁺_1 σ⁻_0 (I - σᶻ_1) (I + σᶻ_0) + 0.4330127018922193 σ⁺_0 (I + σᶻ_1) (I - σᶻ_0))"
+          e2 = "(0.25 (I - σᶻ_0) (I - σᶻ_1) σ⁻_0 + 0.3535533905932738 (I - σᶻ_1) (I + σᶻ_0) σ⁺_0 σ⁻_1 + 0.4330127018922193 (I - σᶻ_0) (I + σᶻ_1) σ⁻_0)"
+          s = e1 <> " " <> e1 <> " " <> e2 <> " " <> e2
+      print $ mkExpr SpinTag s
+      True `shouldBe` True

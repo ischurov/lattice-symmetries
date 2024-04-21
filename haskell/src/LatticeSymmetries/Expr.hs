@@ -38,11 +38,11 @@ import LatticeSymmetries.Permutation (Permutation (..))
 import Prettyprinter (Pretty (..))
 import Prettyprinter qualified as Pretty
 import Prelude hiding (Product, Sum, identity, toList)
-import LatticeSymmetries.Utils (unique, sortVectorBy)
+import LatticeSymmetries.Utils (unique, sortVectorBy, toPrettyText)
 import Data.Vector (Vector)
 
 newtype Expr t = Expr
-  { unExpr :: Polynomial ComplexRational (Generator (IndexType t) (GeneratorType t))
+  { unExpr :: Polynomial (Generator (IndexType t) (GeneratorType t))
   }
   deriving stock (Generic)
 
@@ -87,10 +87,10 @@ foldlCoeffs' combine x₀ (Expr (Sum s)) =
 -- mapCoeffs :: (ComplexRational -> ComplexRational) -> Expr t -> Expr t
 -- mapCoeffs f = Expr . fmap (\(Scaled c p) -> Scaled (f c) p) . unExpr
 
-simplifyExpr :: (Algebra (GeneratorType t), Ord (IndexType t)) => Expr t -> Expr t
+simplifyExpr :: IsBasis t => Expr t -> Expr t
 simplifyExpr = Expr . simplifyPolynomial . unExpr
 
-conjugateExpr :: (Algebra (GeneratorType t), Ord (IndexType t)) => Expr t -> Expr t
+conjugateExpr :: IsBasis t => Expr t -> Expr t
 conjugateExpr = simplifyExpr . Expr . conjugateSum . unExpr
   where
     conjugateSum = fmap conjugateScaled
@@ -104,13 +104,13 @@ isIdentityExpr = isIdentitySum . unExpr
     isIdentityScaled (Scaled _ (Product p)) = G.length p == 1 && isIdentityGenerator (G.head p)
     isIdentityGenerator (Generator _ g) = isIdentity g
 
-isHermitianExpr :: (Ord (IndexType t), Eq (GeneratorType t), Algebra (GeneratorType t)) => Expr t -> Bool
+isHermitianExpr :: IsBasis t => Expr t -> Bool
 isHermitianExpr terms = terms == conjugateExpr terms
 
 isRealExpr :: Expr t -> Bool
 isRealExpr = foldlCoeffs' (\f c -> f && imagPart c == 0) True
 
-instance (Algebra (GeneratorType t), Ord (IndexType t)) => Num (Expr t) where
+instance IsBasis t => Num (Expr t) where
   (+) a b = simplifyExpr . Expr $ unExpr a + unExpr b
   (-) a b = simplifyExpr . Expr $ unExpr a - unExpr b
   (*) a b = simplifyExpr . Expr $ unExpr a * unExpr b
@@ -172,19 +172,18 @@ instance Pretty (Generator (IndexType t) (GeneratorType t)) => Pretty (Expr t) w
 --       where
 --         mapping = Map.fromList (zip oldSiteIndices siteIndices)
 
-fromSExpr :: forall t. (HasCallStack, Algebra (GeneratorType t), Ord (IndexType t)) =>
-  ParticleTag t -> SExpr -> Either Text (Expr t)
+fromSExpr :: forall t. (HasCallStack, IsBasis t) => ParticleTag t -> SExpr -> Either Text (Expr t)
 fromSExpr t0 expr0 = simplifyExpr <$> go t0 expr0
   where
     go :: ParticleTag t -> SExpr -> Either Text (Expr t)
     go t (SSum terms) = do
       exprs <- mapM (go t) terms
       pure $ foldl' (\a b -> Expr $ unExpr a + unExpr b) (Expr []) exprs
-    go t (SScaled c term) = scale c <$> go t term
     go t (SProduct (term :| terms)) = do
       expr <- go t term
       exprs <- mapM (go t) terms
       pure $ foldl' (\a b -> Expr $ unExpr a * unExpr b) expr exprs
+    go t (SScaled c term) = scale c <$> go t term
     go _ (SPrimitive SIdentity) = pure $ Expr [Scaled 1 []]
     go SpinTag (SPrimitive (SSpinOp c t i)) = pure $
       case t of
@@ -211,7 +210,7 @@ fromSExpr t0 expr0 = simplifyExpr <$> go t0 expr0
     go SpinfulFermionTag (SPrimitive _) = fail "expected an expression for spinful fermions"
     go SpinlessFermionTag (SPrimitive _) = fail "expected an expression for spinless fermions"
 
-mkExpr :: (HasCallStack, Algebra (GeneratorType t), Ord (IndexType t)) => ParticleTag t -> Text -> Either Text (Expr t)
+mkExpr :: (HasCallStack, IsBasis t) => ParticleTag t -> Text -> Either Text (Expr t)
 mkExpr tag s = fromSExpr tag =<< parseExprEither s
 
 permuteExprG :: IsBasis t => (IndexType t -> Int) -> (Int -> IndexType t) -> Permutation -> Expr t -> Expr t

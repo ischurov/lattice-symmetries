@@ -1,13 +1,14 @@
 { lib
 , doInstallForeignLibs
 , doEnableRelocatedStaticLibs
+, withRelocated ? true
 }:
 
-lib.composeManyExtensions [
+lib.composeManyExtensions (lib.optionals withRelocated [
   (doEnableRelocatedStaticLibs "ghc962")
   (doEnableRelocatedStaticLibs "ghc963")
   (doEnableRelocatedStaticLibs "ghc964")
-
+] ++ [
   (self: super: rec {
     haskell = super.haskell // {
       packageOverrides = lib.composeExtensions super.haskell.packageOverrides
@@ -41,4 +42,4 @@ lib.composeManyExtensions [
       # };
     };
   })
-]
+])

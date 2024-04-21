@@ -4,6 +4,7 @@ import Data.Aeson qualified as Aeson
 import Data.Bits
 import LatticeSymmetries.BitString
 import LatticeSymmetries.Generator
+import LatticeSymmetries.NonbranchingTerm
 import Test.Hspec
 import Test.Hspec.QuickCheck
 import Test.QuickCheck
@@ -30,3 +31,50 @@ spec = do
       n' `shouldBe` n
       (bits' Data.Bits..&. bits) `shouldBe` zeroBits
       invertBasisState y `shouldBe` x
+  describe "HasNonbranchingRepresentation" $ do
+    it "SpinTy" $ do
+      -- SpinIdentity
+      -- 1 0
+      -- 0 1
+      nonbranchingRepresentation SpinIdentity `actOnKet` BitString 0b0 `shouldBe` (1, BitString 0b0)
+      nonbranchingRepresentation SpinIdentity `actOnKet` BitString 0b1 `shouldBe` (1, BitString 0b1)
+      BitString 0b0 `actOnBra` nonbranchingRepresentation SpinIdentity `shouldBe` (1, BitString 0b0)
+      BitString 0b1 `actOnBra` nonbranchingRepresentation SpinIdentity `shouldBe` (1, BitString 0b1)
+      -- SpinZ
+      -- 1  0
+      -- 0 -1
+      nonbranchingRepresentation SpinZ `actOnKet` BitString 0b0 `shouldBe` (1, BitString 0b0)
+      nonbranchingRepresentation SpinZ `actOnKet` BitString 0b1 `shouldBe` (-1, BitString 0b1)
+      BitString 0b0 `actOnBra` nonbranchingRepresentation SpinZ `shouldBe` (1, BitString 0b0)
+      BitString 0b1 `actOnBra` nonbranchingRepresentation SpinZ `shouldBe` (-1, BitString 0b1)
+      -- SpinPlus
+      -- 0 1
+      -- 0 0
+      nonbranchingRepresentation SpinPlus `actOnKet` BitString 0b0 `shouldBe` (0, BitString 0b0)
+      nonbranchingRepresentation SpinPlus `actOnKet` BitString 0b1 `shouldBe` (1, BitString 0b0)
+      BitString 0b0 `actOnBra` nonbranchingRepresentation SpinPlus `shouldBe` (1, BitString 0b1)
+      BitString 0b1 `actOnBra` nonbranchingRepresentation SpinPlus `shouldBe` (0, BitString 0b1)
+      -- SpinMinus
+      -- 0 0
+      -- 1 0
+      nonbranchingRepresentation SpinMinus `actOnKet` BitString 0b0 `shouldBe` (1, BitString 0b1)
+      nonbranchingRepresentation SpinMinus `actOnKet` BitString 0b1 `shouldBe` (0, BitString 0b1)
+      BitString 0b0 `actOnBra` nonbranchingRepresentation SpinMinus `shouldBe` (0, BitString 0b0)
+      BitString 0b1 `actOnBra` nonbranchingRepresentation SpinMinus `shouldBe` (1, BitString 0b0)
+      -- InternalSpinMinusPlus
+      -- 0 0
+      -- 0 1
+      nonbranchingRepresentation InternalSpinMinusPlus `actOnKet` BitString 0b0 `shouldBe` (0, BitString 0b0)
+      nonbranchingRepresentation InternalSpinMinusPlus `actOnKet` BitString 0b1 `shouldBe` (1, BitString 0b1)
+      BitString 0b0 `actOnBra` nonbranchingRepresentation InternalSpinMinusPlus `shouldBe` (0, BitString 0b0)
+      BitString 0b1 `actOnBra` nonbranchingRepresentation InternalSpinMinusPlus `shouldBe` (1, BitString 0b1)
+      -- InternalSpinPlusMinus
+      -- 1 0
+      -- 0 0
+      nonbranchingRepresentation InternalSpinPlusMinus `actOnKet` BitString 0b0 `shouldBe` (1, BitString 0b0)
+      nonbranchingRepresentation InternalSpinPlusMinus `actOnKet` BitString 0b1 `shouldBe` (0, BitString 0b1)
+      BitString 0b0 `actOnBra` nonbranchingRepresentation InternalSpinPlusMinus `shouldBe` (1, BitString 0b0)
+      BitString 0b1 `actOnBra` nonbranchingRepresentation InternalSpinPlusMinus `shouldBe` (0, BitString 0b1)
+
+      (nonbranchingRepresentation SpinZ <> nonbranchingRepresentation SpinPlus)
+        `shouldBe` nonbranchingRepresentation SpinPlus

@@ -198,10 +198,7 @@ destroyCnonbranching_terms p
   | otherwise = pure ()
 
 getNonbranchingTerms
-  :: forall t
-   . (Typeable t, HasNonbranchingRepresentation (Generator Int (GeneratorType t)))
-  => Operator t
-  -> Vector NonbranchingTerm
+  :: forall t. (IsBasis t) => Operator t -> Vector NonbranchingTerm
 getNonbranchingTerms operator =
   case nonbranchingRepresentation <$> opTermsFlat of
     -- NOTE: sorting based on nbtX is important!
@@ -212,9 +209,10 @@ getNonbranchingTerms operator =
     -- since we allocate buffers assuming that there are not duplicates.
     (Sum v) -> sortVectorBy (comparing (.nbtX)) $ G.filter ((/= 0) . (.nbtV)) v
   where
-    numberSites = getNumberSites operator.opBasis
-    flattenGenerator (Generator i g) = Generator (flattenIndex @t numberSites i) g
-    opTermsFlat = fmap (fmap flattenGenerator) <$> unExpr operator.opTerms
+    -- numberSites = getNumberSites operator.opBasis
+    -- flattenGenerator (Generator i g) = Generator (flattenIndex @t numberSites i) g
+    opTermsFlat = -- fmap (fmap flattenGenerator) <$> 
+                  unExpr operator.opTerms
 
 sortOnDim :: IsBasis t => Vector (Basis t) -> Vector (Basis t)
 sortOnDim = fmap snd . G.reverse . sortVectorBy (comparing fst) . fmap (\x -> (estimateHilbertSpaceDimension x, x))

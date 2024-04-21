@@ -186,9 +186,9 @@ extractViaSubtraction
      , IsBasis t
      , Ord i
      )
-  => (Scaled ℂ (Product g) -> Maybe (i, ℂ))
+  => (Scaled (Product g) -> Maybe (i, ℂ))
   -> (i -> ℂ -> a)
-  -> (a -> [Scaled ℂ (Product g)])
+  -> (a -> [Scaled (Product g)])
   -> Expr t
   -> ([a], Expr t)
 extractViaSubtraction isRelevant toInteraction toTerms expr@(Expr (Sum terms)) = (interactions, others)

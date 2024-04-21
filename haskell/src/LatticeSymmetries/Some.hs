@@ -212,7 +212,7 @@ ls_hs_destroy_expr :: MutablePtr Cexpr -> IO ()
 ls_hs_destroy_expr = ls_hs_destroy_object (const (pure ())) . castPtr @Cexpr @Cobject
 
 newCexpr :: SomeExpr -> IO (MutablePtr Cexpr)
-newCexpr = fmap (castPtr @Cobject @Cexpr) . newCobject
+newCexpr = fmap (castPtr @Cobject @Cexpr) . newCobject . (\ !e -> e)
 
 withCexpr :: Ptr Cexpr -> (SomeExpr -> IO a) -> IO a
 withCexpr p = withCobject (castPtr @Cexpr @Cobject p)

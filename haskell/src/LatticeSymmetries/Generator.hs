@@ -84,22 +84,14 @@ data BasisState (t :: ParticleTy) = BasisState {-# UNPACK #-} !Int !BitString
 instance Typeable t => Pretty (BasisState t) where
   pretty x = case particleDispatch @t of
     SpinTag -> prettySpin x
-    SpinfulFermionTag -> prettyFermion x
-    SpinlessFermionTag ->
-      let (BasisState n bits) = x
-       in prettySpin (BasisState n bits :: BasisState 'SpinTy)
+    SpinfulFermionTag -> prettySpinfulFermion x
+    SpinlessFermionTag -> prettySpinlessFermion x
     where
-      prettySpin (BasisState n bits) = "|" <> prettyBitString n (unBitString bits) <> "⟩"
-      prettyFermion (BasisState n bits) =
-        let up = unBitString bits `shiftR` (n `div` 2)
-         in mconcat
-              [ "|"
-              , prettyBitString (n `div` 2) up
-              , "⟩"
-              , "|"
-              , prettyBitString (n `div` 2) (unBitString bits)
-              , "⟩"
-              ]
+      prettySpin (BasisState n bits) = "|" <> mconcat (bool "↑" "↓" . testBit bits <$> reverse [0 .. n - 1]) <> "⟩"
+      prettySpinlessFermion (BasisState n bits) = "|" <> mconcat (bool "0" "1" . testBit bits <$> reverse [0 .. n - 1]) <> "⟩"
+      prettySpinfulFermion (BasisState n bits) =
+        prettySpinlessFermion (BasisState (n `div` 2) (bits `shiftR` (n `div` 2)))
+          <> prettySpinlessFermion (BasisState (n `div` 2) bits)
 
 unsafeCastBasisState :: BasisState t1 -> BasisState t2
 unsafeCastBasisState (BasisState n bits) = BasisState n bits
@@ -209,6 +201,10 @@ data SpinGeneratorType
     SpinPlus
   | -- | \( \sigma^{\-\} = \sigma^x - 𝕚\sigma^y = \begin{pmatrix} 0 & 0\\ 1 & 0 \end{pmatrix} \))
     SpinMinus
+  | -- | **Internal use only**
+    InternalSpinMinusPlus
+  | -- | **Internal use only**
+    InternalSpinPlusMinus
   deriving stock (Eq, Ord, Show, Enum, Bounded, Generic)
 
 instance Pretty SpinGeneratorType where
@@ -217,6 +213,8 @@ instance Pretty SpinGeneratorType where
     SpinZ -> "σᶻ"
     SpinPlus -> "σ⁺"
     SpinMinus -> "σ⁻"
+    InternalSpinMinusPlus -> "(σ⁻σ⁺)"
+    InternalSpinPlusMinus -> "(σ⁺σ⁻)"
 
 instance HasIdentity SpinGeneratorType where
   isIdentity = (== SpinIdentity)
@@ -231,6 +229,8 @@ data FermionGeneratorType
     FermionCreate
   | -- | Annihilation operator \( c \)
     FermionAnnihilate
+  | -- | **Internal use only**
+    InternalFermionAnnihilateCreate
   deriving stock (Eq, Ord, Show, Enum, Bounded, Generic)
 
 instance Pretty FermionGeneratorType where
@@ -239,6 +239,7 @@ instance Pretty FermionGeneratorType where
     FermionCount -> "n"
     FermionCreate -> "c†"
     FermionAnnihilate -> "c"
+    InternalFermionAnnihilateCreate -> "(cc†)"
 
 instance HasIdentity FermionGeneratorType where
   isIdentity = (== FermionIdentity)
@@ -316,9 +317,16 @@ instance HasNonbranchingRepresentation (Generator Int SpinGeneratorType) where
   nonbranchingRepresentation (Generator i SpinZ) =
     NonbranchingTerm 1 zeroBits zeroBits zeroBits zeroBits (bit i)
   nonbranchingRepresentation (Generator i SpinPlus) =
-    NonbranchingTerm 1 (bit i) (bit i) zeroBits (bit i) zeroBits
-  nonbranchingRepresentation (Generator i SpinMinus) =
     NonbranchingTerm 1 (bit i) zeroBits (bit i) (bit i) zeroBits
+  nonbranchingRepresentation (Generator i SpinMinus) =
+    NonbranchingTerm 1 (bit i) (bit i) zeroBits (bit i) zeroBits
+  nonbranchingRepresentation (Generator i InternalSpinMinusPlus) =
+    nonbranchingRepresentation (Generator i SpinMinus) <> nonbranchingRepresentation (Generator i SpinPlus)
+  nonbranchingRepresentation (Generator i InternalSpinPlusMinus) =
+    nonbranchingRepresentation (Generator i SpinPlus) <> nonbranchingRepresentation (Generator i SpinMinus)
+
+instance HasNonbranchingRepresentation SpinGeneratorType where
+  nonbranchingRepresentation g = nonbranchingRepresentation (Generator (0 :: Int) g)
 
 instance HasNonbranchingRepresentation (Generator Int FermionGeneratorType) where
   nonbranchingRepresentation :: Generator Int FermionGeneratorType -> NonbranchingTerm
@@ -330,3 +338,11 @@ instance HasNonbranchingRepresentation (Generator Int FermionGeneratorType) wher
     NonbranchingTerm 1 (bit i) (bit i) zeroBits (bit i) (BitString (bit i - 1))
   nonbranchingRepresentation (Generator i FermionAnnihilate) =
     NonbranchingTerm 1 (bit i) zeroBits (bit i) (bit i) (BitString (bit i - 1))
+  nonbranchingRepresentation (Generator i InternalFermionAnnihilateCreate) =
+    nonbranchingRepresentation (Generator i FermionAnnihilate) <> nonbranchingRepresentation (Generator i FermionCreate)
+
+instance HasNonbranchingRepresentation (Generator (SpinIndex, Int) FermionGeneratorType) where
+  nonbranchingRepresentation = undefined
+
+instance HasNonbranchingRepresentation FermionGeneratorType where
+  nonbranchingRepresentation g = nonbranchingRepresentation (Generator (0 :: Int) g)

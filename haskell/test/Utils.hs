@@ -94,7 +94,7 @@ instance Arbitrary g => Arbitrary (Generator (SpinIndex, Int) g) where
   arbitrary = sized $ \n ->
     Generator <$> ((,) <$> arbitrary <*> chooseInt (0, max 0 (n - 1))) <*> arbitrary
 
-instance (Arbitrary c, Arbitrary g) => Arbitrary (Scaled c g) where
+instance Arbitrary g => Arbitrary (Scaled g) where
   arbitrary = Scaled <$> arbitrary <*> arbitrary
 
 instance Arbitrary g => Arbitrary (Product g) where

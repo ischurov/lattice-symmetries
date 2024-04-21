@@ -17,35 +17,41 @@ module LatticeSymmetries.Algebra
   , CommutatorType (..)
   , Algebra (..)
   , simplifyPolynomial
-  , swapGenerators
   , HasProperGeneratorType
   , HasProperIndexType
   , IsBasis
   )
 where
 
+import Control.Monad.ST (ST, runST)
 import Data.List qualified as List
+import Data.Ratio
 import Data.Vector (Vector)
 import Data.Vector.Fusion.Bundle qualified as Bundle (inplace)
 import Data.Vector.Fusion.Bundle.Size (toMax)
 import Data.Vector.Fusion.Stream.Monadic (Step (..), Stream (..))
 import Data.Vector.Generic ((!))
 import Data.Vector.Generic qualified as G
+import Data.Vector.Generic.Mutable qualified as GM
+import Data.Vector.Mutable (MVector)
 import GHC.Exts (IsList (..))
 import LatticeSymmetries.ComplexRational
 import LatticeSymmetries.Generator
 import LatticeSymmetries.NonbranchingTerm
+import LatticeSymmetries.Utils (sortVectorBy)
 import Prettyprinter (Pretty (..))
 import Prelude hiding (Product, Sum, identity, toList)
-import LatticeSymmetries.Utils (sortVectorBy)
 
 -- | Represents a term of the form @c × g@ where @c@ is typically a scalar and @g@ is some
 -- expression.
-data Scaled c g = Scaled !c !g
-  deriving stock (Eq, Ord, Show, Generic)
+data Scaled g = Scaled {coeff :: !ComplexRational, term :: !g}
+  deriving stock (Eq, Show, Generic)
 
-instance Functor (Scaled c) where
+instance Functor Scaled where
   fmap f (Scaled c g) = Scaled c (f g)
+
+foldScaled :: CanScale ComplexRational b => (a -> b) -> Scaled a -> b
+foldScaled f (Scaled c p) = scale c (f p)
 
 -- | A product of @g@s.
 newtype Product g = Product {unProduct :: Vector g}
@@ -58,7 +64,7 @@ newtype Sum g = Sum {unSum :: Vector g}
   deriving newtype (IsList, Functor, Semigroup, Monoid, Foldable)
 
 -- | A polynomial in variable @g@ over a field @c@.
-type Polynomial c g = Sum (Scaled c (Product g))
+type Polynomial g = Sum (Scaled (Product g))
 
 -- | Specifies the type of commutator to use for an algebra.
 data CommutatorType
@@ -68,27 +74,25 @@ data CommutatorType
     Anticommutator
   deriving stock (Show, Eq)
 
-class (Ord g, HasIdentity g) => Algebra g where
+class HasInternalGenerators g where
+  isInternalGenerator :: g -> Bool
+  expandInternalGenerator :: g -> Sum (Scaled g)
+
+class (Typeable g, Ord g, HasIdentity g, HasNonbranchingRepresentation g, HasInternalGenerators g, Show g)
+  => Algebra g where
   -- | The type of commutator this algebra uses.
   --
   -- We have 'Commutator' for spin (or bosonic) systems and 'Anticommutator' for fermionic systems.
   nonDiagonalCommutatorType :: CommutatorType
+
+  -- | Generators of the algebra.
+  algebraGenerators :: Vector g
 
   -- | Check whether a given generator is diagonal.
   isDiagonal :: g -> Bool
 
   -- | Compute the Hermitian conjugate of a generator
   conjugateGenerator :: g -> g
-
-  -- | Compute the commutator between two generators.
-  --
-  -- Depending on the algebra, this operation will compute either the commutator or the
-  -- anticommutator. In other words, this function defines the following:
-  -- \(g_a g_b = \pm g_b g_a + \sum_i c_i g_i\).
-  commute :: Fractional c => g -> g -> (CommutatorType, Sum (Scaled c g))
-
-  -- | Simplify a product of multiple generators.
-  simplifyOrderedProduct :: Fractional c => g -> g -> Sum (Scaled c g)
 
 class Num c => CanScale c a where
   scale :: c -> a -> a
@@ -124,7 +128,7 @@ combineNeighbors :: G.Vector v a => (a -> a -> Bool) -> (a -> a -> a) -> v a -> 
 combineNeighbors equal combine =
   G.unstream . Bundle.inplace (combineNeighborsImpl equal combine) toMax . G.stream
 
-instance HasNonbranchingRepresentation g => HasNonbranchingRepresentation (Scaled ComplexRational g) where
+instance HasNonbranchingRepresentation g => HasNonbranchingRepresentation (Scaled g) where
   nonbranchingRepresentation (Scaled c g) = t {nbtV = c * nbtV t}
     where
       t = nonbranchingRepresentation g
@@ -136,119 +140,54 @@ instance HasNonbranchingRepresentation g => HasNonbranchingRepresentation (Produ
         -- an empty Product is equivalent to an identity, and identities for all particle types are the same
         nonbranchingRepresentation (Generator (0 :: Int) SpinIdentity)
 
-instance Num c => CanScale c (CommutatorType, Sum (Scaled c g)) where
+instance CanScale ComplexRational (CommutatorType, Sum (Scaled g)) where
   scale z (tp, terms) = (tp, scale z terms)
 
 instance Algebra SpinGeneratorType where
   nonDiagonalCommutatorType = Commutator
+  algebraGenerators = [SpinIdentity, SpinZ, SpinPlus, SpinMinus, InternalSpinMinusPlus, InternalSpinPlusMinus]
   isDiagonal = \case
     SpinIdentity -> True
     SpinZ -> True
     SpinPlus -> False
     SpinMinus -> False
+    InternalSpinMinusPlus -> True
+    InternalSpinPlusMinus -> True
   conjugateGenerator = \case
     SpinIdentity -> SpinIdentity
     SpinZ -> SpinZ
     SpinPlus -> SpinMinus
     SpinMinus -> SpinPlus
-  commute
-    :: forall c
-     . Fractional c
-    => SpinGeneratorType
-    -> SpinGeneratorType
-    -> (CommutatorType, Sum (Scaled c SpinGeneratorType))
-  commute a b
-    | a == b || isIdentity a || isIdentity b = (Commutator, [])
-    | a > b = (-1 :: c) `scale` commute b a
-  commute SpinZ SpinPlus = (Commutator, [Scaled 2 SpinPlus])
-  commute SpinZ SpinMinus = (Commutator, [Scaled (-2) SpinMinus])
-  commute SpinPlus SpinMinus = (Commutator, [Scaled 1 SpinZ])
-  commute _ _ = error "should never happen"
-  simplifyOrderedProduct
-    :: forall c
-     . Fractional c
-    => SpinGeneratorType
-    -> SpinGeneratorType
-    -> Sum (Scaled c SpinGeneratorType)
-  simplifyOrderedProduct SpinIdentity b = [Scaled 1 b]
-  simplifyOrderedProduct SpinZ SpinZ = [Scaled 1 SpinIdentity]
-  simplifyOrderedProduct SpinZ SpinPlus = [Scaled 1 SpinPlus]
-  simplifyOrderedProduct SpinZ SpinMinus = [Scaled (-1) SpinMinus]
-  simplifyOrderedProduct SpinPlus SpinPlus = []
-  simplifyOrderedProduct SpinPlus SpinMinus = [Scaled ((1 :: c) / 2) SpinIdentity, Scaled ((1 :: c) / 2) SpinZ]
-  simplifyOrderedProduct SpinMinus SpinMinus = []
-  simplifyOrderedProduct _ _ = error "should never happened because the product is ordered"
+    InternalSpinMinusPlus -> InternalSpinMinusPlus
+    InternalSpinPlusMinus -> InternalSpinPlusMinus
 
 instance Algebra FermionGeneratorType where
   nonDiagonalCommutatorType = Anticommutator
+  algebraGenerators = [FermionIdentity, FermionCount, FermionCreate, FermionAnnihilate, InternalFermionAnnihilateCreate]
   isDiagonal g = case g of
     FermionIdentity -> True
     FermionCount -> True
     FermionCreate -> False
     FermionAnnihilate -> False
+    InternalFermionAnnihilateCreate -> True
   conjugateGenerator g = case g of
     FermionIdentity -> FermionIdentity
     FermionCount -> FermionCount
     FermionCreate -> FermionAnnihilate
     FermionAnnihilate -> FermionCreate
-  commute
-    :: forall c
-     . Fractional c
-    => FermionGeneratorType
-    -> FermionGeneratorType
-    -> (CommutatorType, Sum (Scaled c FermionGeneratorType))
-  commute a b
-    | a == b || isIdentity a || isIdentity b = (Commutator, [])
-    | a > b = commute b a
-  commute FermionCount FermionCreate = (Anticommutator, [Scaled 1 FermionCreate])
-  commute FermionCount FermionAnnihilate = (Anticommutator, [Scaled 1 FermionAnnihilate])
-  commute FermionCreate FermionAnnihilate = (Anticommutator, [Scaled 1 FermionIdentity])
-  commute _ _ = error "should never happen"
-  simplifyOrderedProduct
-    :: forall c
-     . Fractional c
-    => FermionGeneratorType
-    -> FermionGeneratorType
-    -> Sum (Scaled c FermionGeneratorType)
-  simplifyOrderedProduct FermionIdentity b = [Scaled 1 b]
-  simplifyOrderedProduct FermionCount FermionCount = [Scaled 1 FermionCount]
-  simplifyOrderedProduct FermionCount FermionCreate = [Scaled 1 FermionCreate]
-  simplifyOrderedProduct FermionCount FermionAnnihilate = []
-  simplifyOrderedProduct FermionCreate FermionCreate = []
-  simplifyOrderedProduct FermionCreate FermionAnnihilate = [Scaled 1 FermionCount]
-  simplifyOrderedProduct FermionAnnihilate FermionAnnihilate = []
-  simplifyOrderedProduct _ _ = error "should never happened because the product is ordered"
+    InternalFermionAnnihilateCreate -> InternalFermionAnnihilateCreate
 
-instance (Algebra g, Ord i) => Algebra (Generator i g) where
+instance (Typeable i, Ord i, Show i, Algebra g, HasNonbranchingRepresentation (Generator i g)) => Algebra (Generator i g) where
   nonDiagonalCommutatorType = nonDiagonalCommutatorType @g
+  algebraGenerators = error "Algebra instance of (Generator i g) does not define algebraGenerators"
   isDiagonal (Generator _ g) = isDiagonal g
   conjugateGenerator (Generator i g) = Generator i (conjugateGenerator g)
-  commute (Generator i a) (Generator j b)
-    | i == j = let (tp, ts) = commute a b in (tp, pack <$> ts)
-    -- TODO: the following is probably unsafe, but it does work for both spins and fermions
-    -- Since i != j in this case, we are essentially computing [1⊗a, b⊗1],
-    | isDiagonal a || isDiagonal b = (Commutator, [])
-    | otherwise = (nonDiagonalCommutatorType @g, [])
-    where
-      pack = fmap (Generator i)
-  simplifyOrderedProduct (Generator i a) (Generator j b)
-    | i == j = fmap (Generator i) <$> simplifyOrderedProduct a b
-    | otherwise = error "cannot simplify product of operators on different sites"
 
-instance Num c => CanScale c (Scaled c g) where
+instance CanScale ComplexRational (Scaled g) where
   scale c (Scaled c' g) = Scaled (c * c') g
 
 instance Traversable Product where
   traverse f (Product v) = Product <$> traverse f v
-
--- instance Pretty g => Pretty (Product g) where
---   pretty (Product v) =
---     Pretty.encloseSep mempty mempty " " (G.toList $ fmap pretty v)
---
--- instance Pretty g => Pretty (Sum g) where
---   pretty (Sum v)
---     | not (G.null v) = Pretty.encloseSep mempty mempty " + " (G.toList $ fmap pretty v)
---     | otherwise = pretty (0 :: Int)
 
 instance CanScale c g => CanScale c (Sum g) where
   scale c (Sum v) = Sum $ G.map (scale c) v
@@ -256,144 +195,145 @@ instance CanScale c g => CanScale c (Sum g) where
 instance Traversable Sum where
   traverse f (Sum v) = Sum <$> traverse f v
 
-instance Num c => Num (Polynomial c g) where
+instance Num (Polynomial g) where
   (+) = (<>)
   (Sum a) * (Sum b) = Sum $ multiply <$> a <*> b
     where
       multiply (Scaled c g) (Scaled c' g') = Scaled (c * c') (g <> g')
-  negate = scale (-1 :: c)
+  negate = scale (-1 :: ComplexRational)
   abs = fmap (\(Scaled c g) -> Scaled (abs c) g)
   signum _ = error "Num instance of Sum does not implement signum"
   fromInteger _ = error "Num instance of Sum does not implement fromInteger"
 
--- | Swaps generators at positions @i@ and @i+1@
-swapGenerators :: (Fractional c, Algebra g) => Int -> Product g -> Polynomial c g
-swapGenerators i (Product v) = newTerms
+-- | Canonicalize index order
+canonicalizeOrderByIndex :: forall i g. (Ord i, Algebra g, Algebra (Generator i g)) => Product (Generator i g) -> Scaled (Product (Generator i g))
+canonicalizeOrderByIndex t0 = runST $ do
+  v <- G.thaw (unProduct t0)
+  c <- go v False (1 :: ComplexRational) (0 :: Int)
+  Scaled c . Product <$> G.unsafeFreeze v
   where
-    !before = G.take i v
-    !a = v ! i
-    !b = v ! (i + 1)
-    !after = G.drop (i + 2) v
-    combined c terms =
-      [Scaled c (Product $ before <> [b, a] <> after)]
-        <> fmap (\(Scaled zᵢ gᵢ) -> Scaled zᵢ (Product $ before <> [gᵢ] <> after)) terms
-    newTerms = case commute a b of
-      (Commutator, terms) -> combined 1 terms
-      (Anticommutator, terms) -> combined (-1) terms
+    size = G.length (unProduct t0)
+    commutatorToSign tp = case tp of
+      Commutator -> 1
+      Anticommutator -> -1
+    -- This is essentially bubble sort
+    go :: MVector s (Generator i g) -> Bool -> ComplexRational -> Int -> ST s ComplexRational
+    go !v !keepGoing !c !k
+      | k < size - 1 = do
+          ga@(Generator ia _) <- GM.read v k
+          gb@(Generator ib _) <- GM.read v (k + 1)
+          -- This pattern match will fail if commute ga gb generates some
+          -- extra terms. However, it should never happen because we're
+          -- always swapping elements at different indices
+          let commutator
+                | isDiagonal ga || isDiagonal gb = Commutator
+                | otherwise = nonDiagonalCommutatorType @g
+          if ia > ib
+            then do
+              -- swapping elements
+              GM.write v k gb
+              GM.write v (k + 1) ga
+              go v True (commutatorToSign commutator * c) (k + 1)
+            else go v keepGoing c (k + 1)
+      | keepGoing = go v False c 0
+      | otherwise = pure c
 
--- | Reorder terms in the product.
---
--- Since the (anti)commutator is not always zero, the result is a polynomial rather than a monomial.
-productToCanonical
-  :: forall c g
-   . (Fractional c, Algebra g)
-  => Product g
-  -> Polynomial c g
-productToCanonical t₀ = go (Scaled 1 t₀) 0 False
+simplifyViaNonbranchingRepresentation :: (HasCallStack, Algebra g) => Product g -> Scaled g
+simplifyViaNonbranchingRepresentation p
+  | c == 0 = Scaled 0 (G.head algebraGenerators)
+  | G.length x /= 1 = error $ "failed to simplify " <> show p <> "; x = " <> show x
+  | otherwise = Scaled c (G.head x)
   where
-    go :: Scaled c (Product g) -> Int -> Bool -> Sum (Scaled c (Product g))
-    go x@(Scaled c t@(Product v)) !i !keepGoing
-      | i < G.length v - 1 =
-          case compare (v ! i) (v ! (i + 1)) of
-            GT -> c `scale` foldMap (\x' -> go x' i True) (swapGenerators i t)
-            _ -> go x (i + 1) keepGoing
-      | keepGoing = go x 0 False
-      | otherwise = Sum (G.singleton x)
+    x = G.filter (\g -> nonbranchingRepresentation g == r) algebraGenerators
+    (c, r) = extractScale (nonbranchingRepresentation p)
+    extractScale t = (t.nbtV, t {nbtV = 1})
 
 -- | Reduce the degree of a product of terms that belong to the same site.
-simplifyProductNoIndices :: forall c g. (Fractional c, Algebra g) => Product g -> Sum (Scaled c g)
-simplifyProductNoIndices (Product v) = case G.toList v of
-  [] -> error "simplifyProductNoIndices does not work on empty Products"
-  (g : gs) -> Sum $ go (Scaled 1 g) gs
+simplifyProductNoIndices :: forall g i. Algebra g => Product (Generator i g) -> Scaled (Generator i g)
+simplifyProductNoIndices (Product v)
+  | G.null v = error "simplifyProductNoIndices does not work on empty Products"
+  | otherwise = Scaled c (Generator i g)
   where
-    go :: Scaled c g -> [g] -> Vector (Scaled c g)
-    go r [] = [r]
-    go (Scaled c g₁) (g₂ : gs) = do
-      -- NOTE: this will fail if g₁ and g₂ belong to different sites or have different spin index.
-      (Scaled c' g') <- unSum $ simplifyOrderedProduct g₁ g₂
-      go (Scaled (c * c') g') gs
+    (Generator i _) = G.head v
+    (Scaled c g) = simplifyViaNonbranchingRepresentation . Product $ (\(Generator _ g) -> g) <$> v
 
--- | Simplify a product of terms
-simplifyProduct
-  :: forall c g i
-   . (Fractional c, Algebra g, Ord i)
-  => Product (Generator i g)
-  -> Polynomial c (Generator i g)
-simplifyProduct =
-  fmap (fmap dropIdentities)
-    . expandProduct
-    . fromList
-    . fmap (simplifyProductNoIndices . fromList)
-    . List.groupBy (\(Generator i _) (Generator j _) -> i == j)
-    . toList
+instance HasInternalGenerators SpinGeneratorType where
+  isInternalGenerator x = case x of
+    InternalSpinMinusPlus -> True
+    InternalSpinPlusMinus -> True
+    _ -> False
+  expandInternalGenerator x = case x of
+    InternalSpinMinusPlus ->
+      Sum [Scaled (ComplexRational (1 % 2) 0) SpinIdentity, Scaled (ComplexRational ((-1) % 2) 0) SpinZ]
+    InternalSpinPlusMinus ->
+      Sum [Scaled (ComplexRational (1 % 2) 0) SpinIdentity, Scaled (ComplexRational (1 % 2) 0) SpinZ]
+    _ -> Sum [Scaled 1 x]
+
+instance HasInternalGenerators FermionGeneratorType where
+  isInternalGenerator x = case x of
+    InternalFermionAnnihilateCreate -> True
+    _ -> False
+  expandInternalGenerator x = case x of
+    InternalFermionAnnihilateCreate ->
+      Sum [Scaled 1 FermionIdentity, Scaled (-1) FermionCount]
+    _ -> Sum [Scaled 1 x]
+
+instance HasInternalGenerators g => HasInternalGenerators (Generator i g) where
+  isInternalGenerator (Generator _ x) = isInternalGenerator x
+  expandInternalGenerator (Generator i x) = fmap (Generator i) <$> expandInternalGenerator x
+
+containsInternalGenerators :: HasInternalGenerators g => Product (Generator i g) -> Bool
+containsInternalGenerators (Product v) = G.any (\(Generator _ g) -> isInternalGenerator g) v
+
+expandProduct :: forall g. HasIdentity g => Product (Sum (Scaled g)) -> Polynomial g
+expandProduct (Product terms) = Sum $ fmap multiply . G.mapM unSum $ terms
   where
-    dropIdentities (Product v) = Product $ G.filter (not . isIdentity) v
+    multiply :: Vector (Scaled g) -> Scaled (Product g)
+    multiply ts =
+      let !z = product $ (.coeff) <$> ts
+          !xs = Product $ G.filter (not . isIdentity) $ (.term) <$> ts
+       in Scaled z xs
 
-collectTerms :: (Num c, Eq c, Eq g) => Sum (Scaled c g) -> Sum (Scaled c g)
+expandInternalsInProducts :: forall i g. (HasIdentity g, HasInternalGenerators g) => Polynomial (Generator i g) -> Polynomial (Generator i g)
+expandInternalsInProducts (Sum ts) = Sum $ G.concatMap f ts
+  where
+    f :: Scaled (Product (Generator i g)) -> Vector (Scaled (Product (Generator i g)))
+    f x
+      | containsInternalGenerators x.term = unSum $
+        foldScaled (expandProduct . Product . fmap expandInternalGenerator . unProduct) x
+      | otherwise = [x]
+
+-- | Simplify a product of terms. This may introduce internal generators into the product
+simplifyProductAddingInternals :: forall i g. (Ord i, Algebra g, Algebra (Generator i g)) => Product (Generator i g) -> Scaled (Product (Generator i g))
+simplifyProductAddingInternals p =
+  scale sign
+    . multiply
+    . fmap (simplifyProductNoIndices . Product)
+    . G.groupBy (\(Generator i _) (Generator j _) -> i == j)
+    $ terms
+  where
+    (Scaled sign (Product terms)) = canonicalizeOrderByIndex p
+    multiply :: [Scaled (Generator i g)] -> Scaled (Product (Generator i g))
+    multiply ts =
+      let !coeff = product . fmap (.coeff) $ ts
+          !xs = Product . G.fromList . filter (not . isIdentity) . fmap (.term) $ ts
+       in Scaled coeff xs
+
+collectTerms :: Eq g => Sum (Scaled g) -> Sum (Scaled g)
 collectTerms = Sum . dropZeros . combine . unSum
   where
-    dropZeros = G.filter (\(Scaled c _) -> c /= 0)
-    combine =
-      combineNeighbors
-        (\(Scaled _ g) (Scaled _ g') -> g == g')
-        (\(Scaled c g) (Scaled c' _) -> Scaled (c + c') g)
+    dropZeros = G.filter (\x -> x.coeff /= 0)
+    combine = combineNeighbors (\a b -> a.term == b.term) (\a b -> Scaled (a.coeff + b.coeff) a.term)
 
-foldScaled
-  :: CanScale c b
-  => (a -> b)
-  -> Scaled c a
-  -> b
-foldScaled f (Scaled c p) = scale c (f p)
+reorderTerms :: Ord g => Sum (Scaled g) -> Sum (Scaled g)
+reorderTerms = Sum . sortVectorBy (comparing (.term)) . unSum
 
-reorderTerms :: Ord g => Sum (Scaled c g) -> Sum (Scaled c g)
-reorderTerms (Sum v) = Sum $ sortVectorBy ordering v
-  where
-    ordering (Scaled _ a) (Scaled _ b) = compare a b
-
--- collectIdentities ::
---   forall c g i.
---   (Eq c, Fractional c, Algebra g, Ord i) =>
---   Polynomial c (Generator i g) ->
---   Polynomial c (Generator i g)
--- collectIdentities (Sum terms)
---   | G.null identities = Sum $ otherTerms
---   | otherwise = Sum $ otherTerms `G.snoc` megaIdentity
---   where
---     isId (Scaled _ (Product p)) = G.length p == 1 && isIdentity (G.head p)
---     (identities, otherTerms) = G.partition isId terms
---     megaIdentity = G.foldl1' (\(Scaled c g) (Scaled c' _) -> (Scaled (c + c') g)) identities
-
-simplifyPolynomial
-  :: forall c g i
-   . (Eq c, Fractional c, Algebra g, Ord i)
-  => Polynomial c (Generator i g)
-  -> Polynomial c (Generator i g)
+simplifyPolynomial :: forall g i. (Ord i, Algebra g, HasInternalGenerators g, Algebra (Generator i g)) => Polynomial (Generator i g) -> Polynomial (Generator i g)
 simplifyPolynomial =
-  collectTerms
-    . reorderTerms
-    -- . collectIdentities
-    . termsToCanonical
-
-termsToCanonical
-  :: forall c g i
-   . (Eq c, Fractional c, Algebra g, Ord i)
-  => Polynomial c (Generator i g)
-  -> Polynomial c (Generator i g)
-termsToCanonical =
-  foldMap (foldScaled simplifyProduct)
-    . foldMap (foldScaled (productToCanonical @c))
-
-expandProduct
-  :: forall c g
-   . Num c
-  => Product (Sum (Scaled c g))
-  -> Sum (Scaled c (Product g))
-expandProduct (Product v)
-  | G.null v = Sum [Scaled 1 (Product [])]
-  | otherwise = G.foldl1' (*) $ fmap asProducts v
-  where
-    -- asProducts :: Sum (Scaled c g) -> Sum (Scaled c (Product g))
-    asProducts = fmap (fmap (Product . G.singleton)) -- \(Scaled c g) -> (Scaled c (Product (G.singleton g))))
+    (collectTerms . reorderTerms)
+    . expandInternalsInProducts
+    . (collectTerms . reorderTerms)
+    . fmap (foldScaled simplifyProductAddingInternals)
 
 class IsGeneratorType (GeneratorType t) => HasProperGeneratorType t
 
@@ -403,7 +343,7 @@ class IsIndexType (IndexType t) => HasProperIndexType t
 
 instance IsIndexType (IndexType t) => HasProperIndexType t
 
-type IsGeneratorType g = (Eq g, Ord g, Pretty g, Algebra g, HasNonbranchingRepresentation (Generator Int g))
+type IsGeneratorType g = (Eq g, Ord g, Pretty g, Algebra g)
 
 type IsIndexType i = (Eq i, Ord i {-HasSiteIndex i,-}, Pretty i)
 
@@ -412,6 +352,7 @@ class
   , HasProperGeneratorType t
   , HasProperIndexType t
   , Pretty (Generator (IndexType t) (GeneratorType t))
+  , Algebra (Generator (IndexType t) (GeneratorType t))
   ) =>
   IsBasis t
 

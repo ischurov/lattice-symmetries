@@ -386,7 +386,7 @@ record Worker {
           chunk,
           localeState.representativesPtr + chunk.low,
           localeState.normsPtr + chunk.low,
-          left=false);
+          left=true);
 
       if numLocales > 1 {
         assert(false, "not implemented");
@@ -559,7 +559,7 @@ proc convertOffDiagToCsr(matrix : Operator,
           chunk,
           c_ptrToConst(representatives[chunk.low]),
           c_ptrToConst(norms[chunk.low]),
-          left=false);
+          left=true);
 
       if totalCount > 0 {
         const countWithPadding = roundUpToMaxBlockSize(totalCount);

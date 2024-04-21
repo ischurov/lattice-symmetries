@@ -48,5 +48,5 @@ spec = do
     it "handles complex numbers" $ do
       p (mkExpr SpinTag "j σ⁺₅") `shouldReturn` "ⅈ σ⁺₅"
       p (mkExpr SpinTag "-2im σ⁺₅") `shouldReturn` "-2.0ⅈ σ⁺₅"
-      p (mkExpr SpinTag "(-3.1 + 2ⅈ) σ⁺₅") `shouldReturn` "(-3.1 + 2.0ⅈ) σ⁺₅"
-      p (mkExpr SpinTag "(3.1 - 2ⅈ) σ⁺₅") `shouldReturn` "(3.1 - 2.0ⅈ) σ⁺₅"
+      p (mkExpr SpinTag "(-3.1 + 2ⅈ) σ⁺₅") `shouldReturn` "(-31/10 + 2.0ⅈ) σ⁺₅"
+      p (mkExpr SpinTag "(3.1 - 2ⅈ) σ⁺₅") `shouldReturn` "(31/10 - 2.0ⅈ) σ⁺₅"

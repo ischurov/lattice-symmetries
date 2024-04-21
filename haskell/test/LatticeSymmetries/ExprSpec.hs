@@ -137,8 +137,7 @@ spec = do
         `shouldBe` Right False
   describe "simplifyExpr" $ do
     it "works for big expressions" $ do
-      let e1 = "(0.25 σ⁺_0 (I - σᶻ_1) (I - σᶻ_0) + 0.3535533905932738 σ⁺_1 σ⁻_0 (I - σᶻ_1) (I + σᶻ_0) + 0.4330127018922193 σ⁺_0 (I + σᶻ_1) (I - σᶻ_0))"
-          e2 = "(0.25 (I - σᶻ_0) (I - σᶻ_1) σ⁻_0 + 0.3535533905932738 (I - σᶻ_1) (I + σᶻ_0) σ⁺_0 σ⁻_1 + 0.4330127018922193 (I - σᶻ_0) (I + σᶻ_1) σ⁻_0)"
+      let e1 = "(0.25 σ⁺_0 (I - σᶻ_1) (I - σᶻ_0) + 0.34 σ⁺_1 σ⁻_0 (I - σᶻ_1) (I + σᶻ_0) + 0.42 σ⁺_0 (I + σᶻ_1) (I - σᶻ_0))"
+          e2 = "(0.25 (I - σᶻ_0) (I - σᶻ_1) σ⁻_0 + 0.34 (I - σᶻ_1) (I + σᶻ_0) σ⁺_0 σ⁻_1 + 0.42 (I - σᶻ_0) (I + σᶻ_1) σ⁻_0)"
           s = e1 <> " " <> e1 <> " " <> e2 <> " " <> e2
-      print $ mkExpr SpinTag s
-      True `shouldBe` True
+      Data.Text.IO.putStrLn . toPrettyText =<< extractRight (mkExpr SpinTag s)

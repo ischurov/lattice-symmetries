@@ -74,6 +74,7 @@ proc applyOffDiagKernel(const ref matrix : ls_chpl_batched_operator,
   for batch_idx in 0 ..# batch_size {
     const oldOffset = offset;
     const alpha = alphas[batch_idx];
+    // logDebug("Applying to ", alpha);
 
     var term_idx = 0;
     do {
@@ -81,6 +82,8 @@ proc applyOffDiagKernel(const ref matrix : ls_chpl_batched_operator,
       var acc : complex(128) = 0;
 
       do {
+        // logDebug(try! "v=%n, m=%n, l=%n r=%n x=%n s=%n".format(terms.v[term_idx], terms.m[term_idx], terms.l[term_idx], terms.r[term_idx], terms.x[term_idx], terms.s[term_idx]));
+
         const l_or_r = if left then terms.l[term_idx] else terms.r[term_idx];
         const delta = (alpha & terms.m[term_idx]) == l_or_r;
         if delta {
@@ -102,6 +105,8 @@ proc applyOffDiagKernel(const ref matrix : ls_chpl_batched_operator,
             // writeln(try! "acc *= %i".format(spinInversionCharacter));
           }
         }
+        // logDebug(try! "obtained acc=%n beta=%n".format(acc, beta));
+
         matrix.coeffs[offset] = acc;
         matrix.betas[offset] = beta;
         if matrix.target_indices != nil then

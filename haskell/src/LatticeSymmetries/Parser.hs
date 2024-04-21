@@ -1,7 +1,7 @@
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module LatticeSymmetries.Parser
@@ -12,7 +12,8 @@ module LatticeSymmetries.Parser
   , SSpin (..)
   , SFermion (..)
   , Parser
-  -- * Exports for testing
+
+    -- * Exports for testing
   , pReal
   , pCoeff
   )
@@ -21,12 +22,13 @@ where
 import Control.Monad.Combinators
 import Control.Monad.Combinators.NonEmpty qualified as NonEmpty
 import Data.Ratio
+import Data.Scientific (base10Exponent, coefficient)
 import Data.Text qualified as Text
 import LatticeSymmetries.ComplexRational
 import LatticeSymmetries.Generator
 import Text.Megaparsec
 import Text.Megaparsec.Char
-import Text.Megaparsec.Char.Lexer (decimal, float, lexeme, signed)
+import Text.Megaparsec.Char.Lexer (decimal, lexeme, scientific, signed)
 import Prelude hiding (Product, Sum, many, optional, some, (<|>))
 
 data SFermion
@@ -97,19 +99,28 @@ pProduct = fmap SProduct . NonEmpty.some $ do
     , lexeme space pPrimitive
     ]
 
-
 pReal :: Parser Rational
-pReal = try (realToFrac @Double <$> float) <|> try ((%) <$> decimal <*> (char '/' *> decimal)) <|> decimal
+pReal = try ((%) <$> decimal <*> (char '/' *> decimal)) <|> float
+  where
+    float :: Parser Rational
+    float = do
+      z <- scientific
+      let c = coefficient z
+          e = base10Exponent z
+      if e < 0
+        then pure $ c % (10 ^ (-e))
+        else pure $ fromInteger $ c * (10 ^ e)
 
 pCoeff :: Parser ℂ
 pCoeff = try ((0 `ComplexRational`) <$> signed space pImaginary) <|> try ((`ComplexRational` 0) <$> signed space pReal) <|> bothParts
   where
     pImaginary = (pImaginaryUnit $> 1) <|> (pReal <* pImaginaryUnit)
     pImaginaryUnit = char 'j' <|> char 'ⅈ' <|> (char 'i' *> char 'm')
-    pPlusOrMinus = (char '+' <|> char '-') >>= \case
-      '+' -> pure id
-      '-' -> pure negate
-      _ -> error "cannot happen"
+    pPlusOrMinus =
+      (char '+' <|> char '-') >>= \case
+        '+' -> pure id
+        '-' -> pure negate
+        _ -> error "cannot happen"
     bothParts = between (lexeme space (char '(')) (char ')') $ do
       r <- lexeme space (signed space pReal)
       f <- lexeme space pPlusOrMinus

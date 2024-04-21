@@ -28,6 +28,7 @@ module LatticeSymmetries.Expr
 where
 
 import Data.Set qualified as Set
+import Data.Vector (Vector)
 import Data.Vector.Generic qualified as G
 import LatticeSymmetries.Algebra
 import LatticeSymmetries.Automorphisms
@@ -35,11 +36,10 @@ import LatticeSymmetries.ComplexRational
 import LatticeSymmetries.Generator
 import LatticeSymmetries.Parser
 import LatticeSymmetries.Permutation (Permutation (..))
+import LatticeSymmetries.Utils (sortVectorBy, toPrettyText, unique)
 import Prettyprinter (Pretty (..))
 import Prettyprinter qualified as Pretty
 import Prelude hiding (Product, Sum, identity, toList)
-import LatticeSymmetries.Utils (unique, sortVectorBy, toPrettyText)
-import Data.Vector (Vector)
 
 newtype Expr t = Expr
   { unExpr :: Polynomial (Generator (IndexType t) (GeneratorType t))
@@ -192,8 +192,10 @@ fromSExpr t0 expr0 = simplifyExpr <$> go t0 expr0
         SSpinZ -> Expr [scaled [Generator i SpinZ]]
         SSpinX -> Expr [scaled [Generator i SpinPlus], scaled [Generator i SpinMinus]]
         SSpinY ->
-          scale (ComplexRational 0 (-1)) $
-            Expr [scaled [Generator i SpinPlus], scale (-1 :: ℂ) (scaled [Generator i SpinMinus])]
+          Expr
+            [ scale (ComplexRational 0 (-1)) (scaled [Generator i SpinPlus])
+            , scale (ComplexRational 0 1) (scaled [Generator i SpinMinus])
+            ]
       where
         scaled = if c == 'S' then Scaled 0.5 else Scaled 1
     go SpinfulFermionTag (SPrimitive (SFermionOp t (Just s) i)) = pure $
@@ -228,8 +230,9 @@ estimateNumberSites expr =
     SpinlessFermionTag -> m (collectIndices expr)
     SpinfulFermionTag -> m (snd <$> collectIndices expr)
   where
-    m v | G.null v = 0
-        | otherwise = G.maximum v
+    m v
+      | G.null v = 0
+      | otherwise = G.maximum v
 
 mapHypergraph :: (Ord a, Ord b) => (a -> b) -> Hypergraph a -> Hypergraph b
 mapHypergraph f (Hypergraph vertices edges) =
@@ -286,4 +289,3 @@ conservesNumberParticles expr = case particleDispatch @t of
      in expr * m == m * expr
   SpinlessFermionTag -> undefined
   SpinfulFermionTag -> undefined
-

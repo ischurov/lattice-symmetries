@@ -83,7 +83,7 @@
       pkgs-for-haskell-dev = system: import nixpkgs { inherit system; overlays = [ (composed-overlay false) ]; };
     in
     {
-      overlays.default = composed-overlay;
+      overlays.default = composed-overlay true;
 
       templates.default = {
         path = builtins.toPath "${./.}/template";

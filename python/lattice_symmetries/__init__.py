@@ -873,7 +873,7 @@ class Operator(HsWrapper, LinearOperator):
         self,
         states: NDArray[np.uint64],
         norms: NDArray[np.uint16] | None = None,
-    ) -> csr_matrix:
+    ) -> tuple[csr_matrix, NDArray[np.uint64 | np.int64]]:
         if states.ndim != 1:
             raise ValueError(f"'states' has wrong shape: {states.shape}")
         states = np.require(states, dtype=np.uint64, requirements=["C"])
